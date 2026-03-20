@@ -1,36 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Echo - AI News Reader
+
+Echo is an AI-powered news reader that transforms written articles into natural-sounding speech. Paste any article URL and listen to it with AI-generated speech.
+
+## Features
+
+- 📰 **Article Management** - Save and organize your favorite articles
+- 🔊 **Text-to-Speech** - Listen to articles with natural AI voices
+- 🎨 **Modern UI** - Clean, responsive design with dark mode support
+- 💾 **Local Storage** - Your articles are saved locally in your browser
+
+## Tech Stack
+
+- **Next.js 16** - React framework with App Router
+- **React 19** - Latest React with hooks and Context API
+- **Tailwind CSS 4** - Utility-first CSS framework
+- **TypeScript** - Type-safe development
+
+## Integrations (TODO)
+
+### Firecrawl - Web Scraping
+Firecrawl is used to extract article content from URLs.
+
+**Setup:**
+1. Get your API key at [firecrawl.dev](https://firecrawl.dev)
+2. Add to `.env.local`:
+   ```
+   FIRECRAWL_API_KEY=your_api_key_here
+   ```
+3. Implement the Firecrawl client in `app/api/scrape/route.ts`
+
+### ElevenLabs - Text-to-Speech
+ElevenLabs provides AI-generated speech for article content.
+
+**Setup:**
+1. Get your API key at [elevenlabs.io](https://elevenlabs.io)
+2. Add to `.env.local`:
+   ```
+   ELEVENLABS_API_KEY=your_api_key_here
+   ```
+3. Implement the ElevenLabs client in `app/api/tts/route.ts` and `components/AudioPlayer.tsx`
 
 ## Getting Started
 
-First, run the development server:
+### Installation
+
+```bash
+npm install
+```
+
+### Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+### Start Production Server
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Lint
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run lint
+```
 
-## Deploy on Vercel
+## Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+echo/
+├── app/
+│   ├── api/
+│   │   ├── scrape/     # Firecrawl scraping endpoint
+│   │   └── tts/        # ElevenLabs TTS endpoint
+│   ├── article/[id]/   # Article detail page
+│   ├── about/          # About page
+│   ├── layout.tsx      # Root layout with providers
+│   └── page.tsx        # Home page
+├── components/
+│   ├── AddArticleForm  # URL input form
+│   ├── ArticleCard     # Article list item
+│   ├── AudioPlayer     # TTS player component
+│   └── Header          # Navigation header
+├── contexts/
+│   └── ArticlesContext # Global state management
+├── types/
+│   └── index.ts        # TypeScript types
+└── .env.example        # Environment variables template
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Environment Variables
+
+Copy `.env.example` to `.env.local` and fill in your API keys:
+
+```bash
+FIRECRAWL_API_KEY=
+ELEVENLABS_API_KEY=
+```
+
+## License
+
+MIT
