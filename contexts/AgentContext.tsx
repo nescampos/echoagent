@@ -1,15 +1,15 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { 
-  AgentState, 
-  ConversationMessage, 
-  NewsSearchResult, 
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import {
+  AgentState,
+  ConversationMessage,
+  NewsSearchResult,
   NewsArticle,
-  ConversationPhase 
+  ConversationPhase
 } from '@/types';
 
-// TODO: Import ElevenLabs conversation hook
+// Import ElevenLabs conversation hook
 import { useConversation } from '@elevenlabs/react';
 
 interface AgentContextType {
@@ -25,42 +25,50 @@ const AgentContext = createContext<AgentContextType | undefined>(undefined);
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID || '';
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AgentState>({
-    isConnected: false,
-    isSpeaking: false,
-    isListening: false,
-    phase: 'idle',
-    messages: [],
-    searchResults: [],
-    articles: [],
-    error: null,
-  });
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [searchResults, setSearchResults] = useState<NewsSearchResult[]>([]);
+  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [phase, setPhase] = useState<ConversationPhase>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const messageHandlerRef = useRef<((message: string) => void) | null>(null);
 
-  // TODO: Implement ElevenLabs conversation hook
+  // ElevenLabs conversation hook
   const {
     startSession,
     endSession,
-    sendEvent,
+    sendUserMessage,
     isSpeaking,
-    isListening,
-    isConnected,
-    error,
+    status,
   } = useConversation({
     agentId: AGENT_ID,
     onConnect: () => {
-      setState(prev => ({ ...prev, isConnected: true, phase: 'listening' }));
+      setPhase('listening');
+      setError(null);
+      // Add greeting message
+      const greeting: ConversationMessage = {
+        id: crypto.randomUUID(),
+        role: 'agent',
+        content: 'Hello! I\'m your news assistant. What topic would you like to hear about today?',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages([greeting]);
     },
     onDisconnect: () => {
-      setState(prev => ({ ...prev, isConnected: false, phase: 'idle' }));
+      setPhase('idle');
     },
-    onMessage: (message) => {
-      // Handle messages from the agent
-      handleAgentMessage(message);
+    onMessage: (payload) => {
+      // Handle messages from the agent - payload has { message, role, source }
+      messageHandlerRef.current?.(payload.message);
     },
-    onError: (error) => {
-      setState(prev => ({ ...prev, error: error.message }));
+    onError: (err) => {
+      setError(err || 'Connection error');
+      setPhase('idle');
     },
   });
+
+  // Derive connection state from status
+  const isConnected = status === 'connected';
+  const isListening = status === 'connected' && !isSpeaking;
 
   const addMessage = useCallback((role: 'user' | 'agent', content: string) => {
     const message: ConversationMessage = {
@@ -69,202 +77,120 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       content,
       timestamp: new Date().toISOString(),
     };
-    setState(prev => ({
-      ...prev,
-      messages: [...prev.messages, message],
-    }));
+    setMessages(prev => [...prev, message]);
     return message;
   }, []);
 
-  const handleAgentMessage = useCallback(async (message: string) => {
-    // Check if the message contains a search query (indicated by special format from agent)
-    // The agent should return search queries in a specific format
-    if (message.startsWith('[SEARCH:')) {
-      const searchQuery = message.match(/\[SEARCH:(.*?)\]/)?.[1];
-      if (searchQuery) {
-        setState(prev => ({ ...prev, phase: 'searching' }));
-        
-        try {
-          // Call search API
-          const response = await fetch('/api/news/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: searchQuery }),
-          });
-          const data = await response.json();
-          
-          setState(prev => ({
-            ...prev,
-            searchResults: data.results || [],
-            phase: 'processing',
-          }));
+  // Set up message handler
+  useEffect(() => {
+    messageHandlerRef.current = async (message: string) => {
+      // Check if the message contains a search query
+      if (message.startsWith('[SEARCH:')) {
+        const searchQuery = message.match(/\[SEARCH:(.*?)\]/)?.[1];
+        if (searchQuery) {
+          setPhase('searching');
 
-          // Scrape each result
-          const scrapedArticles: NewsArticle[] = [];
-          for (const result of data.results.slice(0, 4)) {
-            const scrapeResponse = await fetch('/api/news/scrape', {
+          try {
+            // Call search API
+            const response = await fetch('/api/news/search', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: result.url }),
+              body: JSON.stringify({ query: searchQuery }),
             });
-            const scraped = await scrapeResponse.json();
-            if (scraped.content) {
-              scrapedArticles.push(scraped);
+            const data = await response.json();
+
+            setSearchResults(data.results || []);
+            setPhase('processing');
+
+            // Scrape each result
+            const scrapedArticles: NewsArticle[] = [];
+            for (const result of (data.results || []).slice(0, 4)) {
+              const scrapeResponse = await fetch('/api/news/scrape', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: result.url }),
+              });
+              const scraped = await scrapeResponse.json();
+              if (scraped.content) {
+                scrapedArticles.push({
+                  url: scraped.url || result.url,
+                  title: scraped.title || result.title,
+                  content: scraped.content,
+                  excerpt: scraped.excerpt || scraped.content.slice(0, 200),
+                  sourceName: scraped.sourceName || new URL(result.url).hostname,
+                });
+              }
             }
+
+            setArticles(scrapedArticles);
+            setPhase('summarizing');
+
+            // Send acknowledgment to agent
+            addMessage('agent', `I found ${scrapedArticles.length} articles about "${searchQuery}". Let me summarize them for you.`);
+            setPhase('speaking');
+          } catch (err) {
+            console.error('Search error:', err);
+            setError('Failed to search news');
+            setPhase('listening');
           }
-
-          setState(prev => ({
-            ...prev,
-            articles: scrapedArticles,
-            phase: 'summarizing',
-          }));
-
-          // Send scraped content back to agent for summarization
-          // TODO: Send to ElevenLabs agent
-          addMessage('agent', `He encontrado ${scrapedArticles.length} artículos sobre "${searchQuery}". Aquí está el resumen...`);
-          
-          setState(prev => ({ ...prev, phase: 'speaking' }));
-        } catch (error) {
-          console.error('Search error:', error);
-          setState(prev => ({ 
-            ...prev, 
-            error: 'Failed to search news',
-            phase: 'listening'
-          }));
         }
+      } else {
+        addMessage('agent', message);
+        setPhase('listening');
       }
-    } else {
-      addMessage('agent', message);
-      setState(prev => ({ ...prev, phase: 'listening' }));
-    }
+    };
   }, [addMessage]);
 
   const startConversation = useCallback(async () => {
-    setState(prev => ({ ...prev, phase: 'processing', error: null }));
-    
-    try {
-      // TODO: Use ElevenLabs startSession
-      // await startSession();
-      
-      // Placeholder - simulate connection
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setState(prev => ({
-        ...prev,
-        isConnected: true,
-        phase: 'listening',
-        messages: [{
-          id: crypto.randomUUID(),
-          role: 'agent',
-          content: 'Hello! I\'m your news assistant. What topic would you like to hear about today?',
-          timestamp: new Date().toISOString(),
-        }],
-      }));
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Failed to start conversation',
-        phase: 'idle',
-      }));
+    setError(null);
+    setPhase('processing');
+
+    if (!AGENT_ID) {
+      setError('ElevenLabs Agent ID is not configured. Please set NEXT_PUBLIC_ELEVENLABS_AGENT_ID in your .env.local file.');
+      setPhase('idle');
+      return;
     }
-  }, []);
+
+    try {
+      // Start ElevenLabs conversation session - this will request microphone access
+      await startSession({ agentId: AGENT_ID, connectionType: 'webrtc' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start conversation');
+      setPhase('idle');
+    }
+  }, [startSession]);
 
   const endConversation = useCallback(() => {
-    // TODO: Use ElevenLabs endSession
-    // endSession();
-    
-    setState({
-      isConnected: false,
-      isSpeaking: false,
-      isListening: false,
-      phase: 'idle',
-      messages: [],
-      searchResults: [],
-      articles: [],
-      error: null,
-    });
-  }, []);
+    endSession();
+    setPhase('idle');
+    setMessages([]);
+    setSearchResults([]);
+    setArticles([]);
+    setError(null);
+  }, [endSession]);
 
   const sendMessage = useCallback(async (message: string) => {
     addMessage('user', message);
-    setState(prev => ({ ...prev, phase: 'processing' }));
-    
-    // TODO: Send message to ElevenLabs agent
-    // sendEvent({ type: 'user_message', text: message });
-    
-    // Placeholder - simulate agent response
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Check if user is specifying a topic
-    const searchKeywords = message.toLowerCase().match(/(?:news|articles|information|tell me|search|find)\s+(?:about|on|regarding)?\s*(.+)/i);
-    if (searchKeywords) {
-      const topic = searchKeywords[1]?.trim() || message;
-      setState(prev => ({ ...prev, phase: 'searching' }));
-      
-      try {
-        const response = await fetch('/api/news/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: topic }),
-        });
-        const data = await response.json();
-        
-        setState(prev => ({
-          ...prev,
-          searchResults: data.results || [],
-          phase: 'processing',
-        }));
+    setPhase('processing');
 
-        // Scrape each result (limit to 4)
-        const scrapedArticles: NewsArticle[] = [];
-        for (const result of (data.results || []).slice(0, 4)) {
-          try {
-            const scrapeResponse = await fetch('/api/news/scrape', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: result.url }),
-            });
-            const scraped = await scrapeResponse.json();
-            if (scraped.content) {
-              scrapedArticles.push({
-                url: scraped.url || result.url,
-                title: scraped.title || result.title,
-                content: scraped.content,
-                excerpt: scraped.excerpt || scraped.content.slice(0, 200),
-                sourceName: scraped.sourceName || new URL(result.url).hostname,
-              });
-            }
-          } catch (err) {
-            console.error('Failed to scrape:', result.url, err);
-          }
-        }
-
-        setState(prev => ({
-          ...prev,
-          articles: scrapedArticles,
-          phase: 'summarizing',
-        }));
-
-        // Generate summary prompt for agent
-        const summaryPrompt = `[SEARCH:${topic}]`;
-        addMessage('agent', `I found ${scrapedArticles.length} articles about "${topic}". Let me summarize them for you.`);
-        
-        // TODO: Send scraped content to ElevenLabs agent for summarization
-        setState(prev => ({ ...prev, phase: 'speaking' }));
-      } catch (error) {
-        console.error('Search error:', error);
-        addMessage('agent', 'I apologize, but I encountered an error while searching for news. Please try again.');
-        setState(prev => ({ ...prev, phase: 'listening' }));
-      }
-    } else {
-      addMessage('agent', 'I understand. What news topic would you like to explore?');
-      setState(prev => ({ ...prev, phase: 'listening' }));
-    }
-  }, [addMessage]);
+    // Send message to ElevenLabs agent
+    sendUserMessage(message);
+  }, [addMessage, sendUserMessage]);
 
   const clearMessages = useCallback(() => {
-    setState(prev => ({ ...prev, messages: [] }));
+    setMessages([]);
   }, []);
+
+  const state: AgentState = {
+    isConnected,
+    isSpeaking,
+    isListening,
+    phase,
+    messages,
+    searchResults,
+    articles,
+    error,
+  };
 
   return (
     <AgentContext.Provider

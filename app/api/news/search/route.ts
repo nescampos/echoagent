@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// TODO: Initialize Firecrawl client
-import FirecrawlApp, { type SearchResultNews } from '@mendable/firecrawl-js';
+// Initialize Firecrawl client
+import FirecrawlApp from '@mendable/firecrawl-js';
 
 const firecrawl = new FirecrawlApp({
   apiKey: process.env.FIRECRAWL_API_KEY,
@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const results = searchResult.news?.map((item: SearchResultNews) => ({
-      url: item.url || '',
-      title: item.title || 'Untitled',
-      description: item.snippet || '',
+    const results = searchResult.news?.map((item) => ({
+      url: 'url' in item ? (item.url || '') : '',
+      title: 'title' in item ? (item.title || 'Untitled') : '',
+      description: 'snippet' in item ? (item.snippet || '') : '',
     })) || [];
     
     return NextResponse.json({ results });
