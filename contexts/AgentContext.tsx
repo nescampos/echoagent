@@ -57,8 +57,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setPhase('idle');
     },
     onMessage: (payload) => {
-      // Handle messages from the agent - payload has { message, role, source }
+      // Handle text messages from the agent
       messageHandlerRef.current?.(payload.message);
+    },
+    onUnhandledClientToolCall: (params) => {
+      // Handle client tool calls from the agent
+      // params has: { tool_name, tool_call_id, parameters, event_id }
+      return handleToolCall(params.tool_name, params.parameters, params.tool_call_id);
     },
     onError: (err) => {
       setError(err || 'Connection error');
@@ -81,63 +86,77 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     return message;
   }, []);
 
+  // Handle tool calls from the agent
+  const handleToolCall = useCallback(async (toolName: string, parameters: Record<string, any>, toolCallId: string) => {
+    console.log(`Tool called: ${toolName}`, parameters, 'ID:', toolCallId);
+
+    if (toolName === 'find_news') {
+      const topic = parameters.topic as string;
+      
+      if (!topic) {
+        return 'Please provide a topic for the news search.';
+      }
+
+      addMessage('agent', `Searching for news about "${topic}"...`);
+      setPhase('searching');
+
+      try {
+        // Call search API
+        const response = await fetch('/api/news/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: topic }),
+        });
+        const data = await response.json();
+
+        setSearchResults(data.results || []);
+        setPhase('processing');
+
+        // Scrape each result
+        const scrapedArticles: NewsArticle[] = [];
+        for (const result of (data.results || []).slice(0, 4)) {
+          const scrapeResponse = await fetch('/api/news/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: result.url }),
+          });
+          const scraped = await scrapeResponse.json();
+          if (scraped.content) {
+            scrapedArticles.push({
+              url: scraped.url || result.url,
+              title: scraped.title || result.title,
+              content: scraped.content,
+              excerpt: scraped.excerpt || scraped.content.slice(0, 200),
+              sourceName: scraped.sourceName || new URL(result.url).hostname,
+            });
+          }
+        }
+
+        setArticles(scrapedArticles);
+        setPhase('summarizing');
+
+        // Return summary to agent
+        const summary = `I found ${scrapedArticles.length} articles about "${topic}". Here are the key points:\n\n` +
+          scrapedArticles.map((article, i) => `${i + 1}. ${article.title}`).join('\n');
+
+        return summary;
+      } catch (err) {
+        console.error('Search error:', err);
+        setError('Failed to search news');
+        setPhase('listening');
+        return 'I encountered an error while searching for news. Please try again.';
+      }
+    }
+
+    return `Tool '${toolName}' is not available.`;
+  }, [addMessage]);
+
   // Set up message handler
   useEffect(() => {
     messageHandlerRef.current = async (message: string) => {
-      // Check if the message contains a search query
-      if (message.startsWith('[SEARCH:')) {
-        const searchQuery = message.match(/\[SEARCH:(.*?)\]/)?.[1];
-        if (searchQuery) {
-          setPhase('searching');
-
-          try {
-            // Call search API
-            const response = await fetch('/api/news/search', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ query: searchQuery }),
-            });
-            const data = await response.json();
-
-            setSearchResults(data.results || []);
-            setPhase('processing');
-
-            // Scrape each result
-            const scrapedArticles: NewsArticle[] = [];
-            for (const result of (data.results || []).slice(0, 4)) {
-              const scrapeResponse = await fetch('/api/news/scrape', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: result.url }),
-              });
-              const scraped = await scrapeResponse.json();
-              if (scraped.content) {
-                scrapedArticles.push({
-                  url: scraped.url || result.url,
-                  title: scraped.title || result.title,
-                  content: scraped.content,
-                  excerpt: scraped.excerpt || scraped.content.slice(0, 200),
-                  sourceName: scraped.sourceName || new URL(result.url).hostname,
-                });
-              }
-            }
-
-            setArticles(scrapedArticles);
-            setPhase('summarizing');
-
-            // Send acknowledgment to agent
-            addMessage('agent', `I found ${scrapedArticles.length} articles about "${searchQuery}". Let me summarize them for you.`);
-            setPhase('speaking');
-          } catch (err) {
-            console.error('Search error:', err);
-            setError('Failed to search news');
-            setPhase('listening');
-          }
-        }
-      } else {
-        addMessage('agent', message);
-        setPhase('listening');
-      }
+      // Regular agent messages (not tool-related)
+      addMessage('agent', message);
+      setPhase('listening');
     };
   }, [addMessage]);
 
