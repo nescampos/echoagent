@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ArticlesProvider } from "@/contexts/ArticlesContext";
+import { AgentProvider } from "@/contexts/AgentContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Echo - AI News Reader",
-  description: "Listen to your favorite articles with AI-generated speech",
+  title: "Echo - AI News Assistant",
+  description: "Your AI-powered news companion. Talk to get personalized news summaries.",
 };
 
 export default function RootLayout({
@@ -29,9 +30,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <ArticlesProvider>
-          {children}
-        </ArticlesProvider>
+        <AgentProvider>
+          <ArticlesProvider>
+            {children}
+          </ArticlesProvider>
+        </AgentProvider>
       </body>
     </html>
   );
