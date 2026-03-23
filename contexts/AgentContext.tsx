@@ -45,13 +45,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setPhase('listening');
       setError(null);
       // Add greeting message
-      const greeting: ConversationMessage = {
-        id: crypto.randomUUID(),
-        role: 'agent',
-        content: 'Hello! I\'m your news assistant. What topic would you like to hear about today?',
-        timestamp: new Date().toISOString(),
-      };
-      setMessages([greeting]);
+      // const greeting: ConversationMessage = {
+      //   id: crypto.randomUUID(),
+      //   role: 'agent',
+      //   content: 'Hello! I\'m your news assistant. What topic would you like to hear about today?',
+      //   timestamp: new Date().toISOString(),
+      // };
+      // setMessages([greeting]);
     },
     onDisconnect: () => {
       setPhase('idle');
@@ -115,12 +115,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         // Scrape each result
         const scrapedArticles: NewsArticle[] = [];
         for (const result of (data.results || []).slice(0, 4)) {
+          console.log('Scraping URL:', result.url);
           const scrapeResponse = await fetch('/api/news/scrape', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: result.url }),
           });
           const scraped = await scrapeResponse.json();
+          console.log('Scraped result:', scraped);
+          
           if (scraped.content) {
             scrapedArticles.push({
               url: scraped.url || result.url,
@@ -129,6 +132,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
               excerpt: scraped.excerpt || scraped.content.slice(0, 200),
               sourceName: scraped.sourceName || new URL(result.url).hostname,
             });
+          } else {
+            console.error('No content found for URL:', result.url, 'Response:', scraped);
           }
         }
 
@@ -137,7 +142,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
         // Return summary to agent
         const summary = `I found ${scrapedArticles.length} articles about "${topic}". Here are the key points:\n\n` +
-          scrapedArticles.map((article, i) => `${i + 1}. ${article.title}`).join('\n');
+          scrapedArticles.map((article, i) => `${i + 1}. ${article.title}: ${article.excerpt}`).join('\n\n');
 
         return summary;
       } catch (err) {

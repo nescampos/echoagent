@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ScrapedContent } from '@/types';
 
-// TODO: Initialize Firecrawl client
-// import FirecrawlApp from '@mendable/firecrawl-js';
-//
-// const firecrawl = new FirecrawlApp({
-//   apiKey: process.env.FIRECRAWL_API_KEY,
-// });
+// Initialize Firecrawl client
+import FirecrawlApp from '@mendable/firecrawl-js';
+
+const firecrawl = new FirecrawlApp({
+  apiKey: process.env.FIRECRAWL_API_KEY,
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,45 +29,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Use Firecrawl to scrape the URL
-    // const scrapeResult = await firecrawl.scrapeUrl(url, {
-    //   formats: ['markdown', 'metadata'],
-    //   onlyMainContent: true,
-    //   removeTags: ['nav', 'footer', 'aside', 'script', 'style'],
-    // });
-    //
-    // if (!scrapeResult.success) {
-    //   return NextResponse.json(
-    //     { error: 'Failed to scrape URL' },
-    //     { status: 500 }
-    //   );
-    // }
-    //
-    // return NextResponse.json({
-    //   url,
-    //   title: scrapeResult.metadata?.title || 'Untitled',
-    //   content: scrapeResult.markdown || '',
-    //   excerpt: scrapeResult.description || scrapeResult.markdown?.slice(0, 300) || '',
-    //   sourceName: scrapeResult.metadata?.sourceURL || new URL(url).hostname,
-    //   author: scrapeResult.metadata?.author,
-    //   publishedAt: scrapeResult.metadata?.publishedDate,
-    // });
-
-    // Placeholder response - remove when Firecrawl is implemented
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    return NextResponse.json({
-      url,
-      title: 'Article Title (TODO: Implement Firecrawl)',
-      content: `This is placeholder content for the article at ${url}. 
-
-To enable actual scraping, implement the Firecrawl integration in this API route.
-
-Once Firecrawl is configured with your API key, this endpoint will return the full article content extracted from the webpage, which will then be sent to the ElevenLabs agent for summarization.`,
-      excerpt: 'Article excerpt will appear here once Firecrawl is configured.',
-      sourceName: new URL(url).hostname,
-      todo: 'Implement Firecrawl scraping in /api/news/scrape/route.ts',
+    // Use Firecrawl to scrape the URL
+    const scrapeResult = await firecrawl.scrape(url, {
+      formats: ['markdown'],
+      onlyMainContent: true,
     });
+
+    if (!scrapeResult || !scrapeResult.markdown) {
+      return NextResponse.json(
+        { error: 'Failed to scrape URL' },
+        { status: 500 }
+      );
+    }
+
+    const content: ScrapedContent = {
+      title: (scrapeResult.metadata?.title as string) || scrapeResult.markdown?.slice(0, 100) || 'Untitled',
+      content: scrapeResult.markdown || '',
+      excerpt: scrapeResult.markdown?.slice(0, 300) || '',
+      author: scrapeResult.metadata?.author as string,
+      publishedAt: scrapeResult.metadata?.publishedDate as string,
+      imageUrl: scrapeResult.metadata?.image as string,
+      sourceName: (scrapeResult.metadata?.sourceURL as string) || new URL(url).hostname,
+    };
+
+    return NextResponse.json(content);
   } catch (error) {
     console.error('Scrape API error:', error);
     return NextResponse.json(
